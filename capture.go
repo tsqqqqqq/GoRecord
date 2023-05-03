@@ -1,0 +1,285 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"runtime"
+	"time"
+	"unsafe"
+
+	"GoRecord/winapi/dx11"
+	"GoRecord/winapi/winrt"
+	"github.com/go-ole/go-ole"
+	"github.com/lxn/win"
+	"github.com/pkg/errors"
+)
+
+type CaptureHandler struct {
+	device                 *winrt.IDirect3DDevice
+	deviceDx               *dx11.ID3D11Device
+	graphicsCaptureItem    *winrt.IGraphicsCaptureItem
+	framePool              *winrt.IDirect3D11CaptureFramePool
+	graphicsCaptureSession *winrt.IGraphicsCaptureSession
+	framePoolToken         *winrt.EventRegistrationToken
+	isRunning              bool
+}
+
+// 解释一下下面的函数
+// 1. runtime.LockOSThread() 用于锁定当前线程，防止其他线程干扰
+// 2. winrt.RoInitialize(winrt.RO_INIT_MULTITHREADED) 初始化winrt
+// 3. dx11.D3D11CreateDevice 创建设备
+// 4. dxgiDevice.PutQueryInterface(dx11.IDXGIDeviceID, &dxgiDevice) 获取dxgiDevice
+// 5. dxgiDevice.GetAdapter(&dxgiAdapter) 获取dxgiAdapter
+// 6. dxgiAdapter.GetParent(dx11.IDXGIFactoryID, &dxgiFactory) 获取dxgiFactory
+// 7. dxgiFactory.MakeWindowAssociation(hwnd, dxgi.DXGI_MWA_NO_WINDOW_CHANGES) 将窗口与dxgiFactory关联
+// 8. dxgiDevice.GetParent(dx11.ID3D11DeviceID, &c.deviceDx) 获取c.deviceDx
+// 9. c.deviceDx.QueryInterface(winrt.IDirect3DDeviceID, &c.device) 获取c.device
+// 10. c.graphicsCaptureItem = winrt.CreateForWindow(hwnd, nil) 创建c.graphicsCaptureItem
+// 11. c.framePool = winrt.CreateDirect3D11CaptureFramePool(c.device, dx11.DXGI_FORMAT_B8G8R8A8_UNORM, 2, c.graphicsCaptureItem.Size()) 创建c.framePool
+// 12. c.framePoolToken = c.framePool.AddFrameArrived(winrt.NewFrameArrivedHandler(c.onFrameArrived)) 创建c.framePoolToken
+// 13. c.graphicsCaptureSession = winrt.CreateGraphicsCaptureSession(c.graphicsCaptureItem, winrt.NewGraphicsCaptureSessionOptions()) 创建c.graphicsCaptureSession
+// 14. c.graphicsCaptureSession.StartCapture() 开始捕获
+// 15. c.isRunning = true
+// 16. c.framePool.WaitForNextFrame() 等待下一帧
+// 17. c.framePool.Recreate(winrt.NewDirect3D11CaptureFramePool(c.device, dx11.DXGI_FORMAT_B8G8R8A8_UNORM, 2, c.graphicsCaptureItem.Size())) 重建c.framePool
+// 18. c.graphicsCaptureSession.Close() 关闭c.graphicsCaptureSession
+// 19. c.framePool.Close() 关闭c.framePool
+// 20. c.graphicsCaptureItem.Close() 关闭c.graphicsCaptureItem
+// 21. c.device.Close() 关闭c.device
+// 22. c.deviceDx.Close() 关闭c.deviceDx
+// 23. dxgiDevice.Close() 关闭dxgiDevice
+// 24. dxgiAdapter.Close() 关闭dxgiAdapter
+// 25. dxgiFactory.Close() 关闭dxgiFactory
+// 26. winrt.RoUninitialize() 反初始化winrt
+// 27. runtime.UnlockOSThread() 解锁当前线程
+
+func (c *CaptureHandler) StartCapture(hwnd win.HWND) error {
+	type resultAttr struct {
+		err error
+	}
+
+	var result = make(chan resultAttr)
+
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		// Initialize Windows Runtime
+		err := winrt.RoInitialize(winrt.RO_INIT_MULTITHREADED)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "RoInitialize")}
+			return
+		}
+		defer winrt.RoUninitialize()
+
+		// Create capture device
+		var featureLevels = []dx11.D3D_FEATURE_LEVEL{
+			dx11.D3D_FEATURE_LEVEL_11_0,
+			dx11.D3D_FEATURE_LEVEL_10_1,
+			dx11.D3D_FEATURE_LEVEL_10_0,
+			dx11.D3D_FEATURE_LEVEL_9_3,
+			dx11.D3D_FEATURE_LEVEL_9_2,
+			dx11.D3D_FEATURE_LEVEL_9_1,
+		}
+
+		err = dx11.D3D11CreateDevice(
+			nil, dx11.D3D_DRIVER_TYPE_HARDWARE, 0, dx11.D3D11_CREATE_DEVICE_BGRA_SUPPORT|dx11.D3D11_CREATE_DEVICE_DEBUG,
+			&featureLevels[0], len(featureLevels),
+			dx11.D3D11_SDK_VERSION, &c.deviceDx, nil, nil,
+		)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "D3DCreateDevice")}
+			return
+		}
+		defer c.deviceDx.Release()
+
+		// Query interface of DXGIDevice
+		var dxgiDevice *dx11.IDXGIDevice
+		err = c.deviceDx.PutQueryInterface(dx11.IDXGIDeviceID, &dxgiDevice)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "PutQueryInterface")}
+			return
+		}
+
+		var deviceRT *ole.IInspectable
+
+		// convert D3D11Device(Dx11) to Direct3DDevice(WinRT)
+		err = dx11.CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice, &deviceRT)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "CreateDirect3D11DeviceFromDXGIDevice")}
+			return
+		}
+		defer deviceRT.Release()
+
+		// Query interface of IDirect3DDevice
+		err = deviceRT.PutQueryInterface(winrt.IDirect3DDeviceID, &c.device)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "QueryInterface: IDirect3DDeviceID")}
+			return
+		}
+		defer c.device.Release()
+
+		// Create Capture Settings
+		factory, err := ole.RoGetActivationFactory(winrt.GraphicsCaptureItemClass, winrt.IGraphicsCaptureItemInteropID)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "RoGetActivationFactory: IGraphicsCaptureItemID")}
+			return
+		}
+		defer factory.Release()
+
+		var interop *winrt.IGraphicsCaptureItemInterop
+		err = factory.PutQueryInterface(winrt.IGraphicsCaptureItemInteropID, &interop)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "QueryInterface: IGraphicsCaptureItemInteropID")}
+			return
+		}
+		defer interop.Release()
+
+		var captureItemDispatch *ole.IInspectable
+
+		// Capture for the window specified
+		err = interop.CreateForWindow(hwnd, winrt.IGraphicsCaptureItemID, &captureItemDispatch)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "CreateForMonitor")}
+			return
+		}
+		defer captureItemDispatch.Release()
+
+		// Capture for the monitor specified
+		//var hmoni = win.MonitorFromWindow(hwnd, win.MONITORINFOF_PRIMARY)
+		//
+		//err = interop.CreateForMonitor(hmoni, winrt.IGraphicsCaptureItemID, &captureItemDispatch)
+		//if err != nil {
+		//	result <- resultAttr{errors.Wrap(err, "CreateForMonitor")}
+		//	return
+		//}
+		//defer captureItemDispatch.Release()
+
+		// Get Interface of IGraphicsCaptureItem
+		// 解释一下下面的代码
+		// 1. captureItemDispatch是一个IInspectable对象
+		err = captureItemDispatch.PutQueryInterface(winrt.IGraphicsCaptureItemID, &c.graphicsCaptureItem)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "PutQueryInterface captureItemDispatch")}
+			return
+		}
+
+		// Get Capture objects size
+		size, err := c.graphicsCaptureItem.Size()
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "Size")}
+			return
+		}
+
+		// Get object of Direct3D11CaptureFramePoolClass
+		ins, err := ole.RoGetActivationFactory(winrt.Direct3D11CaptureFramePoolClass, winrt.IDirect3D11CaptureFramePoolStaticsID)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "RoGetActivationFactory: IDirect3D11CaptureFramePoolStatics Class Instance")}
+			return
+		}
+		defer ins.Release()
+
+		// Get Interface of Direct3D11CaptureFramePoolClass
+		var framePoolStatic *winrt.IDirect3D11CaptureFramePoolStatics2
+		err = ins.PutQueryInterface(winrt.IDirect3D11CaptureFramePoolStatics2ID, &framePoolStatic)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "PutQueryInterface: IDirect3D11CaptureFramePoolStaticsID")}
+			return
+		}
+		defer framePoolStatic.Release()
+
+		// Create frame pool
+		c.framePool, err = framePoolStatic.CreateFreeThreaded(c.device, winrt.DirectXPixelFormat_B8G8R8A8UIntNormalized, 1, size)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "CreateFramePool")}
+			return
+		}
+
+		// Set frame settings
+		var eventObject = NewDirect3D11CaptureFramePool(c.onFrameArrived)
+		c.framePoolToken, err = c.framePool.AddFrameArrived(unsafe.Pointer(eventObject))
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "AddFrameArrived")}
+			return
+		}
+		defer eventObject.Release()
+
+		c.graphicsCaptureSession, err = c.framePool.CreateCaptureSession(c.graphicsCaptureItem)
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "CreateCaptureSession")}
+			return
+		}
+		//fmt.Println(c.graphicsCaptureSession.IsSupport())
+		defer c.graphicsCaptureSession.Release()
+
+		// Start capturing
+		err = c.graphicsCaptureSession.StartCapture()
+		if err != nil {
+			result <- resultAttr{errors.Wrap(err, "StartCapture")}
+			return
+		}
+
+		c.isRunning = true
+
+		result <- resultAttr{nil}
+
+		for c.isRunning {
+			time.Sleep(time.Second)
+		}
+	}()
+
+	var res = <-result
+	close(result)
+
+	fmt.Println("Start Capturing")
+
+	return res.err
+}
+
+func (c *CaptureHandler) onFrameArrived(this_ *uintptr, sender *winrt.IDirect3D11CaptureFramePool, args *ole.IInspectable) uintptr {
+	_ = (*Direct3D11CaptureFramePool)(unsafe.Pointer(this_))
+	_, err := sender.TryGetNextFrame()
+	if err != nil {
+		os.Stderr.Write([]byte("Error: TryGetNextFrame: " + err.Error()))
+		return 0
+	}
+	return 0
+}
+
+func (c *CaptureHandler) Close() error {
+	if !c.isRunning {
+		return nil
+	}
+
+	if c.framePool != nil {
+		err := c.framePool.RemoveFrameArrived(c.framePoolToken)
+		if err != nil {
+			return errors.Wrap(err, "RemoveFrameArrived")
+		}
+
+		var closable *winrt.IClosable
+		err = c.framePool.PutQueryInterface(winrt.IClosableID, &closable)
+		if err != nil {
+			return errors.Wrap(err, "PutQueryInterface: graphicsCaptureSession")
+		}
+		defer closable.Release()
+
+		closable.Close()
+
+		c.framePool = nil
+	}
+
+	var closable *winrt.IClosable
+	err := c.graphicsCaptureSession.PutQueryInterface(winrt.IClosableID, &closable)
+	if err != nil {
+		return errors.Wrap(err, "PutQueryInterface: graphicsCaptureSession")
+	}
+	defer closable.Release()
+
+	closable.Close()
+
+	c.graphicsCaptureItem = nil
+	c.isRunning = false
+
+	return nil
+}
