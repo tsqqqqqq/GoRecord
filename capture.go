@@ -24,35 +24,6 @@ type CaptureHandler struct {
 	isRunning              bool
 }
 
-// 解释一下下面的函数
-// 1. runtime.LockOSThread() 用于锁定当前线程，防止其他线程干扰
-// 2. winrt.RoInitialize(winrt.RO_INIT_MULTITHREADED) 初始化winrt
-// 3. dx11.D3D11CreateDevice 创建设备
-// 4. dxgiDevice.PutQueryInterface(dx11.IDXGIDeviceID, &dxgiDevice) 获取dxgiDevice
-// 5. dxgiDevice.GetAdapter(&dxgiAdapter) 获取dxgiAdapter
-// 6. dxgiAdapter.GetParent(dx11.IDXGIFactoryID, &dxgiFactory) 获取dxgiFactory
-// 7. dxgiFactory.MakeWindowAssociation(hwnd, dxgi.DXGI_MWA_NO_WINDOW_CHANGES) 将窗口与dxgiFactory关联
-// 8. dxgiDevice.GetParent(dx11.ID3D11DeviceID, &c.deviceDx) 获取c.deviceDx
-// 9. c.deviceDx.QueryInterface(winrt.IDirect3DDeviceID, &c.device) 获取c.device
-// 10. c.graphicsCaptureItem = winrt.CreateForWindow(hwnd, nil) 创建c.graphicsCaptureItem
-// 11. c.framePool = winrt.CreateDirect3D11CaptureFramePool(c.device, dx11.DXGI_FORMAT_B8G8R8A8_UNORM, 2, c.graphicsCaptureItem.Size()) 创建c.framePool
-// 12. c.framePoolToken = c.framePool.AddFrameArrived(winrt.NewFrameArrivedHandler(c.onFrameArrived)) 创建c.framePoolToken
-// 13. c.graphicsCaptureSession = winrt.CreateGraphicsCaptureSession(c.graphicsCaptureItem, winrt.NewGraphicsCaptureSessionOptions()) 创建c.graphicsCaptureSession
-// 14. c.graphicsCaptureSession.StartCapture() 开始捕获
-// 15. c.isRunning = true
-// 16. c.framePool.WaitForNextFrame() 等待下一帧
-// 17. c.framePool.Recreate(winrt.NewDirect3D11CaptureFramePool(c.device, dx11.DXGI_FORMAT_B8G8R8A8_UNORM, 2, c.graphicsCaptureItem.Size())) 重建c.framePool
-// 18. c.graphicsCaptureSession.Close() 关闭c.graphicsCaptureSession
-// 19. c.framePool.Close() 关闭c.framePool
-// 20. c.graphicsCaptureItem.Close() 关闭c.graphicsCaptureItem
-// 21. c.device.Close() 关闭c.device
-// 22. c.deviceDx.Close() 关闭c.deviceDx
-// 23. dxgiDevice.Close() 关闭dxgiDevice
-// 24. dxgiAdapter.Close() 关闭dxgiAdapter
-// 25. dxgiFactory.Close() 关闭dxgiFactory
-// 26. winrt.RoUninitialize() 反初始化winrt
-// 27. runtime.UnlockOSThread() 解锁当前线程
-
 func (c *CaptureHandler) StartCapture(hwnd win.HWND) error {
 	type resultAttr struct {
 		err error
