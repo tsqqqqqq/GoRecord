@@ -329,3 +329,10 @@ type IDirect3D11CaptureFrameVtbl struct {
 func (v *IDirect3D11CaptureFrame) VTable() *IDirect3D11CaptureFrameVtbl {
 	return (*IDirect3D11CaptureFrameVtbl)(unsafe.Pointer(v.RawVTable))
 }
+
+func (v *IDirect3D11CaptureFrame) Process() (ok bool) {
+	needReset := false
+	recreateDevice := false
+
+	return
+}

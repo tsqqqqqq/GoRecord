@@ -28,7 +28,7 @@ func main() {
 		// 第三个参数是窗口类名，如果为nil则从父窗口开始查找
 		// 第四个参数是窗口标题，如果为nil则从父窗口开始查找
 		// 返回值是找到的窗口句柄，如果为0则表示没有找到
-		rdHwnd = winapi.FindWindow(nil, winapi.MustUTF16PtrFromString("SevenEightSSR"))
+		rdHwnd = winapi.FindWindow(nil, winapi.MustUTF16PtrFromString("艾可云"))
 		if rdHwnd == 0 {
 			win.MessageBox(0, winapi.MustUTF16PtrFromString("Could not find window"), winapi.MustUTF16PtrFromString("RDP Relative Input"), win.MB_ICONERROR)
 			return

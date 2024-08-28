@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"runtime"
 	"time"
@@ -202,14 +201,13 @@ func (c *CaptureHandler) StartCapture(hwnd win.HWND) error {
 	var res = <-result
 	close(result)
 
-	fmt.Println("Start Capturing")
-
 	return res.err
 }
 
 func (c *CaptureHandler) onFrameArrived(this_ *uintptr, sender *winrt.IDirect3D11CaptureFramePool, args *ole.IInspectable) uintptr {
 	_ = (*Direct3D11CaptureFramePool)(unsafe.Pointer(this_))
-	_, err := sender.TryGetNextFrame()
+	frame, err := sender.TryGetNextFrame()
+	frame.Process()
 	if err != nil {
 		os.Stderr.Write([]byte("Error: TryGetNextFrame: " + err.Error()))
 		return 0
