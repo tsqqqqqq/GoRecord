@@ -1,10 +1,11 @@
 package winrt
 
 import (
+	"github.com/go-ole/go-ole"
 	"syscall"
 	"unsafe"
 
-	"github.com/go-ole/go-ole"
+	_ "github.com/go-ole/go-ole"
 	"github.com/lxn/win"
 )
 
@@ -41,7 +42,10 @@ func (v *IGraphicsCaptureItem) DisplayName() (string, error) {
 	}
 
 	var ret = hRet.String()
-	ole.DeleteHString(hRet)
+	err := ole.DeleteHString(hRet)
+	if err != nil {
+		return "", err
+	}
 
 	return ret, nil
 }
@@ -331,8 +335,8 @@ func (v *IDirect3D11CaptureFrame) VTable() *IDirect3D11CaptureFrameVtbl {
 }
 
 func (v *IDirect3D11CaptureFrame) Process() (ok bool) {
-	needReset := false
-	recreateDevice := false
+	//needReset := false
+	//recreateDevice := false
 
 	return
 }
