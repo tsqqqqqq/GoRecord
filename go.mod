@@ -1,4 +1,4 @@
-module GoRecord
+module github.com/tsqqqqqq/GoRecord
 
 go 1.20
 
