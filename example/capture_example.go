@@ -3,7 +3,7 @@ package example
 //
 
 //import (
-//	"GoRecord/winapi"
+//	"github.com/tsqqqqqq/GoRecord/winapi"
 //	"fmt"
 //	"github.com/lxn/win"
 //	"os"

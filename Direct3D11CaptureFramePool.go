@@ -6,9 +6,9 @@ import (
 	"syscall"
 	"unsafe"
 
-	"GoRecord/winapi/winrt"
 	"github.com/go-ole/go-ole"
 	"github.com/lxn/win"
+	"github.com/tsqqqqqq/GoRecord/winapi/winrt"
 )
 
 // Direct3D11CaptureFramePool

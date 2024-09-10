@@ -6,11 +6,11 @@ import (
 	"time"
 	"unsafe"
 
-	"GoRecord/winapi/dx11"
-	"GoRecord/winapi/winrt"
 	"github.com/go-ole/go-ole"
 	"github.com/lxn/win"
 	"github.com/pkg/errors"
+	"github.com/tsqqqqqq/GoRecord/winapi/dx11"
+	"github.com/tsqqqqqq/GoRecord/winapi/winrt"
 )
 
 type CaptureHandler struct {
